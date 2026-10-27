@@ -1,25 +1,31 @@
 SRC_DIR := src
 OUT_DIR := out
-SOURCES := $(wildcard $(SRC_DIR)/*.txt)
-OUTPUTS := $(patsubst $(SRC_DIR)/%.txt,$(OUT_DIR)/%.txt,$(SOURCES))
+SOURCES := $(wildcard $(SRC_DIR)/*.md)
+OUTPUTS := $(patsubst $(SRC_DIR)/%.md,$(OUT_DIR)/%.html,$(SOURCES))
 
-.PHONY: all check build test clean ci
+.PHONY: all check build test clean ci deps package
 
 all: test
 
 $(OUT_DIR):
 	mkdir -p $(OUT_DIR)
 
-$(OUT_DIR)/%.txt: $(SRC_DIR)/%.txt | $(OUT_DIR)
-	@echo " BUILD $< -> $@"
-	@tr '[:lower:]' '[:upper:]' < $< > $@
+node_modules: package-lock.json
+	npm ci
+	@touch node_modules
+
+deps: node_modules
+
+$(OUT_DIR)/%.html: $(SRC_DIR)/%.md package-lock.json | $(OUT_DIR) node_modules
+	@echo "  BUILD $< -> $@"
+	@npm run --silent build -- $< $@
 
 check:
 	@if [ ! -d "$(SRC_DIR)" ]; then \
 	  echo "ERROR: source directory $(SRC_DIR) does not exist"; \
 	  exit 1; \
 	elif [ -z "$(SOURCES)" ]; then \
-	  echo "ERROR: no .txt files found in $(SRC_DIR)"; \
+	  echo "ERROR: no .md files found in $(SRC_DIR)"; \
 	  exit 1; \
 	else \
 	  echo "CHECK PASSED: found $(words $(SOURCES)) source files"; \
@@ -28,19 +34,12 @@ check:
 build: $(OUTPUTS)
 
 test: build
-	@if grep -l '[a-z]' $(OUTPUTS) >/dev/null 2>&1; then \
-	  echo "TEST FAILED: lowercase characters remain"; \
-	  exit 1; \
-	fi
-	@echo "TEST PASSED"
+	@npm test --silent
+
+package: test
+	npm pack
 
 clean:
-	rm -rf $(OUT_DIR)
+	rm -rf $(OUT_DIR) *.tgz
 
-ci: clean check test
-count: build ## report source files and built words
-	@ls -1 $(SRC_DIR)/*.txt | wc -l
-	@wc -w $(OUTPUTS) | tail -1
-# count: see section 5 of the README
-# OUTPUTS is set by the wildcard above
-# run 'make help' for all targets
+ci: clean deps check test package
